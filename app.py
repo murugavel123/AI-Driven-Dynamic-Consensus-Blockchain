@@ -22,7 +22,7 @@ CREDENTIALS_FILE = r"D:\PW_II\Review 1\User_Credential.csv"
 MODEL_PATH = r"D:\PW_II\Review 1\FL_SGD\federated_sgd_global_model.pkl"
 LABEL_ENCODER_PATH = r"D:\PW_II\Review 1\FL_SGD\fed_label_encoder.pkl"
 SCALER_PATH = r"D:\PW_II\Review 1\FL_SGD\fed_scaler.pkl"
-DATA_PATH = r"D:\PW_II\Review 1\Network_Metrics_Dataset.csv"
+DATA_PATH = r"D:\PW_II\Review 1\Dataset\Current_Network_Metrics.csv"
 
 NETWORK_STATE_FILE = r"D:\PW_II\Review 1\Blockchain_Ledger.json" # New file for state persistence
 USERS: Dict[str, str] = {} # {username: hashed_password}
@@ -495,6 +495,30 @@ def load_network_state():
 
     ensure_default_users()
 
+def online_update(features_scaled, true_label_str):
+    global model
+
+    if not model_ready:
+        return
+
+    try:
+        # encode real label from dataset
+        true_label_encoded = label_encoder.transform([true_label_str])[0]
+
+        model.partial_fit(
+            features_scaled,
+            np.array([true_label_encoded])
+        )
+
+
+        joblib.dump(model, MODEL_PATH)
+
+        print(f"⚡ Learned from real label: {true_label_str}")
+
+    except Exception as e:
+        print("Online update error:", e)
+
+
 def ensure_default_users():
     """Ensures at least two default users exist and are active."""
 
@@ -789,13 +813,29 @@ def add_land_tx():
     if model_ready:
         try:
             random_row = df_traffic.sample(n=1)
+
+            # features
             features_df = random_row[MODEL_FEATURES]
             scaled_features = scaler.transform(features_df.values)
+
+            # prediction
             prediction = model.predict(scaled_features)[0]
             predicted_consensus = label_encoder.inverse_transform([prediction])[0]
+
+            # TRUE LABEL from dataset
+            true_label = random_row['consensus'].values[0]
+
+            correct = predicted_consensus == true_label
+            print(f"Prediction: {predicted_consensus} | True: {true_label} | Correct: {correct}")
+
+            # online supervised learning
+            online_update(scaled_features, true_label)
+
             network.set_consensus(predicted_consensus)
-        except:
-            pass
+
+        except Exception as e:
+            print("ML error:", e)
+
 
     result["predicted_consensus"] = predicted_consensus
 
